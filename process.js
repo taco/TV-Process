@@ -6,6 +6,8 @@ var STATES = {
 	failed: '~{0-FAILED}~'
 }
 
+var watchTimeouts = {}
+
 var finder = require('findit')(PROCESS_DIR)
 var path = require('path')
 var argv = require('optimist').argv
@@ -94,7 +96,7 @@ File.prototype.dest = function() {
 	return this.dir + '/' + this.file + '.m4v'
 }
 
-File.prototype.queue = function() {
+File.prototype.queue = function(start) {
 	if (this.state() !== 'init') {
 		log('skip', this.state(), this.file)
 		return
@@ -106,7 +108,7 @@ File.prototype.queue = function() {
 	
 	this.state('queued')
 	log('queue', this.ext, this.file)
-	Controller.queue(this)
+	Controller.queue(this, start)
 }
 
 File.prototype.remove = function() {
@@ -122,24 +124,27 @@ File.prototype.remove = function() {
 }
 
 File.prototype.process = function(i, len) {
-	var me = this
+	var me = this,
+		watch = typeof i === 'boolean' && i === true
 	
-	log('process ' + i + ' of ' + len, this.ext, this.file)
+	if (watch) log('process watch', this.ext, this.file)
+	else log('process ' + i + ' of ' + len, this.ext, this.file)
+	
 	this.state('processing')
 	
 	switch (this.ext) {
 		
 		case '.mkv':
-			this.processMkv()
+			this.processMkv(watch)
 			break
 		
 		case '.avi':
-			this.processAvi()
+			this.processAvi(watch)
 			break
 	}
 }
 
-File.prototype.processMkv = function() {
+File.prototype.processMkv = function(watch) {
 	var cmd = 'SublerCLI -source "' + this.source() + '" -64bitchunk -dest "' + this.dest() + '" -remove -optimize -itunesfriendly -downmix dolby',
 		me = this
 
@@ -147,15 +152,15 @@ File.prototype.processMkv = function() {
 		if (error !== null) {
 			log('processmkv error:', error)
 			me.state('failed')
-			Controller.next()
+			!watch && Controller.next()
 			return
 		}
 		me.state('completed')
-		Controller.next()
+		!watch && Controller.next()
 	})
 }
 
-File.prototype.processAvi = function() {
+File.prototype.processAvi = function(watch) {
 	var cmd = 'HandBrakeCLI -i "' + this.source() + '" -o "' + this.dest() + '" --preset="Normal"',
 		me = this
 
@@ -163,13 +168,18 @@ File.prototype.processAvi = function() {
 		if (error !== null) {
 			log('processavi error:', error)
 			me.state('failed')
-			Controller.next()
+			!watch && Controller.next()
 			return
 		}
 		me.state('completed')
-		Controller.next()
+		!watch && Controller.next()
 	})
 }
+
+
+
+
+
 
 
 
@@ -187,6 +197,13 @@ finder.on('file', function(file, stat) {
 
 
 var Controller = {
+	
+	init: function() {
+		this._queue = []
+		this._index = 0
+		this._processing = false
+	},
+
 	clean: function(state) {
 		log('========= CLEAN =========', state || 'all')
 		
@@ -202,15 +219,14 @@ var Controller = {
 	process: function(show) {
 		log('========= PROCESS =========', show || 'all')
 
-		this._queue = []
-		this._index = 0
-
 		files.forEach(function(file) {
 			if (!show) file.queue()
 			else if (file.dir.match(show)) {
 				file.queue()
 			}
 		})
+
+		this.processing = true
 
 		this.next()
 	},
@@ -240,6 +256,33 @@ var Controller = {
 		})
 	},
 
+	watch: function() {
+		log('========= WATCHING =========')
+
+		var f2 = require('findit')(PROCESS_DIR)
+
+		f2.on('directory', function(dir) {
+			log('watching', dir)
+			fs.watch(dir, function(e, filename) {
+				var p = dir + '/' + filename
+				if (!filename.match(/.avi$/) && !filename.match(/.mkv$/) && !filename.match(/.rtf$/)) return
+				clearTimeout(watchTimeouts[p])
+				watchTimeouts[p] = setTimeout(function() {
+					var file = new File(p)
+
+					delete watchTimeouts[p]
+
+					if (!fs.existsSync(p) || file.state() !== 'init') return;
+					
+					file.queue()
+
+					Controller.processing()
+
+				}, 1000 * 60)
+			})
+		})
+	},
+
 	queue: function(file) {
 		if (!this._queue) this._queue = []
 
@@ -249,10 +292,19 @@ var Controller = {
 	next: function() {
 		var file = this._queue[this._index]
 
-		if (!file) return
+		if (!file) {
+			this._processing = false
+			return
+		}
 
 		this._index++
 		file.process(this._index, this._queue.length)
+	},
+
+	processing: function() {
+		if (this._processing) return
+		this._processing = true
+		this.next()
 	}
 
 }
@@ -264,6 +316,8 @@ var Controller = {
 
 setTimeout(function() {
 	
+	Controller.init()
+
 	if (argv.clean || argv.c) {
 		
 		var state
@@ -299,9 +353,9 @@ setTimeout(function() {
 
 		Controller.remove(state)
 
-	} else if (argv.b) {
+	} else if (argv.watch || argv.w) {
 		
-		log('b', argv.b)
+		Controller.watch()
 
 	}
 
