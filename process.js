@@ -16,12 +16,12 @@ var files = []
 
 var log = function(cmd) {
 	var args = Array.prototype.slice.call(arguments, 1),
-		timestamp = new Date().toLocaleString().substr(0, 24);
+		timestamp = new Date().toLocaleString().substr(0, 24)
 
-	cmd = cmd.toUpperCase() + (args.length ? ':' : '');
-	args = Array.prototype.concat.apply([timestamp, cmd], args);
+	cmd = cmd.toUpperCase() + (args.length ? ':' : '')
+	args = Array.prototype.concat.apply([timestamp, cmd], args)
 
-	console.log.apply(console, args);
+	console.log.apply(console, args)
 }
 
 
@@ -38,7 +38,7 @@ var File = function(p) {
 }
 
 File.prototype.stateStr = function() {
-	return STATES[this.state()];
+	return STATES[this.state()]
 }
 
 File.prototype.state = function(val) {
@@ -48,23 +48,23 @@ File.prototype.state = function(val) {
 
 File.prototype._setState = function(val) {
 	var oldPath = this.path,
-		newPath;
+		newPath
 
-	if (val === this._state) return;
+	if (val === this._state) return
 	
-	this._state = val;
+	this._state = val
 
-	newPath = this.source();
+	newPath = this.source()
 
-	fs.renameSync(oldPath, newPath);
+	fs.renameSync(oldPath, newPath)
 
-	this.path = newPath;
+	this.path = newPath
 
-	return this;
+	return this
 }
 
 File.prototype._getState = function() {
-	return this._state;
+	return this._state
 }
 
 File.prototype.initState = function() {
@@ -74,11 +74,11 @@ File.prototype.initState = function() {
 		if (this.file.match(STATES[keys[i]])) {
 			this._state = keys[i]
 			this.file = this.file.replace(this.stateStr(), '')
-			return;
+			return
 		}
 	}
 
-	this._state = 'init';
+	this._state = 'init'
 }
 
 File.prototype.removeState = function(state) {
@@ -104,7 +104,7 @@ File.prototype.queue = function() {
 		return
 	}
 	
-	this.state('queued');
+	this.state('queued')
 	log('queue', this.ext, this.file)
 	Controller.queue(this)
 }
@@ -121,10 +121,10 @@ File.prototype.remove = function() {
 	})
 }
 
-File.prototype.process = function() {
-	var me = this;
+File.prototype.process = function(i, len) {
+	var me = this
 	
-	log('process', this.ext, this.file)
+	log('process ' + i + ' of ' + len, this.ext, this.file)
 	this.state('processing')
 	
 	switch (this.ext) {
@@ -195,44 +195,64 @@ var Controller = {
 				file.state('init')
 				return
 			}
-			if (file.state() === state) file.state('init');
-		});
+			if (file.state() === state) file.state('init')
+		})
 	},
 
-	process: function() {
-		log('========= PROCESS =========')
+	process: function(show) {
+		log('========= PROCESS =========', show || 'all')
 
-		this._queue = [];
-		this._index = 0;
+		this._queue = []
+		this._index = 0
 
 		files.forEach(function(file) {
-			file.queue();
-		});
+			if (!show) file.queue()
+			else if (file.dir.match(show)) {
+				file.queue()
+			}
+		})
 
-		this.next();
+		this.next()
+	},
+
+	list: function(show) {
+		var count = 1
+
+		log('========= LIST =========', show || 'all')
+
+		this._queue = []
+		this._index = 0
+
+		files.forEach(function(file, i) {
+			if (file.state() !== 'init' || (file.ext !== '.mkv' && file.ext !== '.avi')) return
+
+			log('ready ' + count++, file.ext, file.file)
+		})
+
+		this.next()
 	},
 
 	remove: function(state) {
 		log('========= REMOVE =========', state || 'none')
 
 		files.forEach(function(file) {
-			if (file.state() === state) file.remove();
+			if (file.state() === state) file.remove()
 		})
 	},
 
 	queue: function(file) {
-		if (!this._queue) this._queue = [];
+		if (!this._queue) this._queue = []
 
-		this._queue.push(file);
+		this._queue.push(file)
 	},
 
 	next: function() {
-		var file = this._queue[this._index];
+		var file = this._queue[this._index]
 
-		if (!file) return;
+		if (!file) return
 
-		this._index++;
-		file.process();
+		this._index++
+		file.process(this._index, this._queue.length)
 	}
 
 }
@@ -246,19 +266,33 @@ setTimeout(function() {
 	
 	if (argv.clean || argv.c) {
 		
-		var state;
+		var state
 		
 		if (typeof argv.clean === 'string') state = argv.clean
 		else if (typeof argv.c === 'string') state = argv.c
 		
 		Controller.clean(state)
 
+	} else if (argv.list || argv.l) {
+		
+		var show
+		
+		if (typeof argv.list === 'string') show = argv.list
+		else if (typeof argv.l === 'string') show = argv.l
+		
+		Controller.list(show)
+
 	} else if (argv.process || argv.p) {
 		
-		Controller.process()
+		var show
+		
+		if (typeof argv.process === 'string') show = argv.process
+		else if (typeof argv.p === 'string') show = argv.p
+		
+		Controller.process(show)
 
 	} else if (argv.remove || argv.r) {
-		var state;
+		var state
 		
 		if (typeof argv.remove === 'string') state = argv.remove
 		else if (typeof argv.r === 'string') state = argv.r
@@ -267,7 +301,7 @@ setTimeout(function() {
 
 	} else if (argv.b) {
 		
-		log('b', argv.b);
+		log('b', argv.b)
 
 	}
 
